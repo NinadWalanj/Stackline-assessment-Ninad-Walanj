@@ -8,8 +8,9 @@ export async function GET(request: NextRequest) {
     category: searchParams.get('category') || undefined,
     subCategory: searchParams.get('subCategory') || undefined,
     search: searchParams.get('search') || undefined,
-    limit: searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 20,
-    offset: searchParams.get('offset') ? parseInt(searchParams.get('offset')!) : 0,
+    // SEC-2: clamp limit/offset so non-numeric or malicious values can't bypass the cap
+    limit: Math.max(1, Math.min(100, parseInt(searchParams.get('limit') ?? '') || 20)),
+    offset: Math.max(0, parseInt(searchParams.get('offset') ?? '') || 0),
   };
 
   const products = productService.getAll(filters);

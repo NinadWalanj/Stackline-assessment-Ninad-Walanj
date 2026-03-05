@@ -3,14 +3,7 @@
 import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -19,9 +12,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Search } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
+
+const LIMIT = 20;
 
 interface Product {
   stacklineSku: string;
@@ -36,72 +31,112 @@ export default function Home() {
   const [categories, setCategories] = useState<string[]>([]);
   const [subCategories, setSubCategories] = useState<string[]>([]);
   const [search, setSearch] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<string | undefined>(
-    undefined
-  );
-  const [selectedSubCategory, setSelectedSubCategory] = useState<
-    string | undefined
-  >(undefined);
+  const [selectedCategory, setSelectedCategory] = useState<string | undefined>(undefined);
+  const [selectedSubCategory, setSelectedSubCategory] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(true);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     fetch("/api/categories")
       .then((res) => res.json())
-      .then((data) => setCategories(data.categories));
+      .then((data) => setCategories(data.categories))
+      .catch(() => {});
   }, []);
 
+  // Fetch subcategories whenever the selected category changes
   useEffect(() => {
     if (selectedCategory) {
-      fetch(`/api/subcategories`)
+      fetch(`/api/subcategories?category=${encodeURIComponent(selectedCategory)}`)
         .then((res) => res.json())
-        .then((data) => setSubCategories(data.subCategories));
+        .then((data) => setSubCategories(data.subCategories))
+        .catch(() => setSubCategories([]));
     } else {
       setSubCategories([]);
-      setSelectedSubCategory(undefined);
     }
   }, [selectedCategory]);
 
+  // Fetch products whenever any filter or page changes
   useEffect(() => {
     setLoading(true);
     const params = new URLSearchParams();
     if (search) params.append("search", search);
     if (selectedCategory) params.append("category", selectedCategory);
     if (selectedSubCategory) params.append("subCategory", selectedSubCategory);
-    params.append("limit", "20");
+    params.append("limit", String(LIMIT));
+    params.append("offset", String((page - 1) * LIMIT));
 
     fetch(`/api/products?${params}`)
       .then((res) => res.json())
       .then((data) => {
         setProducts(data.products);
+        setTotal(data.total);
+        setLoading(false);
+      })
+      .catch(() => {
+        setProducts([]);
         setLoading(false);
       });
-  }, [search, selectedCategory, selectedSubCategory]);
+  }, [search, selectedCategory, selectedSubCategory, page]);
+
+  // --- handler helpers that batch state resets ---
+
+  function handleSearchChange(value: string) {
+    setSearch(value);
+    setPage(1);
+  }
+
+  function handleCategoryChange(value: string) {
+    const newCategory = value === "all" ? undefined : value;
+    // Bug 1 fix: reset subcategory in the same event so the products effect
+    // runs exactly once with the correct (category=new, subCategory=undefined) pair
+    setSelectedCategory(newCategory);
+    setSelectedSubCategory(undefined);
+    setPage(1);
+  }
+
+  function handleSubCategoryChange(value: string) {
+    setSelectedSubCategory(value || undefined);
+    setPage(1);
+  }
+
+  function handleClearFilters() {
+    setSearch("");
+    setSelectedCategory(undefined);
+    setSelectedSubCategory(undefined);
+    setPage(1);
+  }
+
+  const totalPages = Math.ceil(total / LIMIT);
 
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b">
         <div className="container mx-auto px-4 py-6">
-          <h1 className="text-4xl font-bold mb-6">StackShop</h1>
+          <div className="mb-8">
+            <h1 className="text-2xl font-bold tracking-tight">StackShop</h1>
+          </div>
 
-          <div className="flex flex-col md:flex-row gap-4 mb-4">
+          <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
               <Input
                 placeholder="Search products..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-10"
+                onChange={(e) => handleSearchChange(e.target.value)}
+                className="pl-10 h-10 bg-muted/50 border-transparent focus:border-border focus:bg-background transition-colors rounded-lg"
               />
             </div>
 
             <Select
-              value={selectedCategory}
-              onValueChange={(value) => setSelectedCategory(value || undefined)}
+              value={selectedCategory ?? "all"}
+              onValueChange={handleCategoryChange}
             >
-              <SelectTrigger className="w-full md:w-[200px]">
+              <SelectTrigger className="w-full sm:w-50 h-10 rounded-lg">
                 <SelectValue placeholder="All Categories" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="all">All Categories</SelectItem>
                 {categories.map((cat) => (
                   <SelectItem key={cat} value={cat}>
                     {cat}
@@ -113,11 +148,9 @@ export default function Home() {
             {selectedCategory && subCategories.length > 0 && (
               <Select
                 value={selectedSubCategory}
-                onValueChange={(value) =>
-                  setSelectedSubCategory(value || undefined)
-                }
+                onValueChange={handleSubCategoryChange}
               >
-                <SelectTrigger className="w-full md:w-[200px]">
+                <SelectTrigger className="w-full sm:w-50 h-10 rounded-lg">
                   <SelectValue placeholder="All Subcategories" />
                 </SelectTrigger>
                 <SelectContent>
@@ -133,11 +166,8 @@ export default function Home() {
             {(search || selectedCategory || selectedSubCategory) && (
               <Button
                 variant="outline"
-                onClick={() => {
-                  setSearch("");
-                  setSelectedCategory(undefined);
-                  setSelectedSubCategory(undefined);
-                }}
+                className="h-10 rounded-lg"
+                onClick={handleClearFilters}
               >
                 Clear Filters
               </Button>
@@ -158,53 +188,84 @@ export default function Home() {
         ) : (
           <>
             <p className="text-sm text-muted-foreground mb-4">
-              Showing {products.length} products
+              {total > LIMIT
+                ? `Showing ${(page - 1) * LIMIT + 1}–${Math.min(page * LIMIT, total)} of ${total} products`
+                : `Showing ${total} products`}
             </p>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {products.map((product) => (
                 <Link
                   key={product.stacklineSku}
                   href={{
                     pathname: "/product",
-                    query: { product: JSON.stringify(product) },
+                    query: { sku: product.stacklineSku },
                   }}
                 >
-                  <Card className="h-full hover:shadow-lg transition-shadow cursor-pointer">
-                    <CardHeader className="p-0">
-                      <div className="relative h-48 w-full overflow-hidden rounded-t-lg bg-muted">
-                        {product.imageUrls[0] && (
-                          <Image
-                            src={product.imageUrls[0]}
-                            alt={product.title}
-                            fill
-                            className="object-contain p-4"
-                            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                          />
-                        )}
-                      </div>
-                    </CardHeader>
-                    <CardContent className="pt-4">
-                      <CardTitle className="text-base line-clamp-2 mb-2">
+                  <Card className="h-full flex flex-col overflow-hidden p-0 hover:shadow-lg transition-shadow cursor-pointer">
+                    <div className="relative h-48 w-full bg-muted shrink-0">
+                      {product.imageUrls?.[0] && (
+                        <Image
+                          src={product.imageUrls[0]}
+                          alt={product.title}
+                          fill
+                          className="object-contain p-4"
+                          sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                        />
+                      )}
+                    </div>
+                    <div className="flex flex-col flex-1 p-4 gap-3">
+                      <p className="text-sm font-semibold leading-snug line-clamp-2 text-card-foreground">
                         {product.title}
-                      </CardTitle>
-                      <CardDescription className="flex gap-2 flex-wrap">
-                        <Badge variant="secondary">
+                      </p>
+                      <div className="flex gap-1.5 flex-wrap mt-auto">
+                        <Badge variant="secondary" className="text-xs font-medium">
                           {product.categoryName}
                         </Badge>
-                        <Badge variant="outline">
+                        <Badge variant="outline" className="text-xs font-medium">
                           {product.subCategoryName}
                         </Badge>
-                      </CardDescription>
-                    </CardContent>
-                    <CardFooter>
-                      <Button variant="outline" className="w-full">
+                      </div>
+                    </div>
+                    <div className="px-4 pb-4">
+                      {/* styled div, not a button — the whole card is already inside <a> */}
+                      <div className="w-full h-9 rounded-lg border border-input bg-background flex items-center justify-center text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground">
                         View Details
-                      </Button>
-                    </CardFooter>
+                      </div>
+                    </div>
                   </Card>
                 </Link>
               ))}
             </div>
+
+            {/* Pagination — only shown when there is more than one page */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-4 mt-8">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="flex items-center gap-1"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Previous
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  Page {page} of {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="flex items-center gap-1"
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
           </>
         )}
       </main>
